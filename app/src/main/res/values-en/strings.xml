@@ -3,6 +3,7 @@
     <string name="app_name">TS Phone</string>
     <string name="channel_connection">Connection status</string>
     <string name="channel_poke">Poke alerts</string>
+    <string name="poke_title">%1$s poked you</string>
 
     <string name="title_bookmarks">Servers</string>
     <string name="title_server">Server</string>

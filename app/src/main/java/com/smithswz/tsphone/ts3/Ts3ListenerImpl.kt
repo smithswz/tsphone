@@ -4,6 +4,7 @@ import com.github.manevolent.ts3j.api.TextMessageTargetMode
 import com.github.manevolent.ts3j.event.ClientJoinEvent
 import com.github.manevolent.ts3j.event.ClientLeaveEvent
 import com.github.manevolent.ts3j.event.ClientMovedEvent
+import com.github.manevolent.ts3j.event.ClientPokeEvent
 import com.github.manevolent.ts3j.event.ClientUpdatedEvent
 import com.github.manevolent.ts3j.event.ChannelListEvent
 import com.github.manevolent.ts3j.event.ConnectedEvent
@@ -51,6 +52,10 @@ class Ts3ListenerImpl(private val manager: ConnectionManager) : TS3Listener {
         if (input != null || output != null) {
             manager.updateClientMutes(e.getClientId(), input, output)
         }
+    }
+
+    override fun onClientPoke(e: ClientPokeEvent) {
+        manager.onPoke(e.getInvokerName(), e.getMessage())
     }
 
     override fun onClientLeave(e: ClientLeaveEvent) {

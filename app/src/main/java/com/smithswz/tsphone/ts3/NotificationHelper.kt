@@ -32,6 +32,18 @@ class NotificationHelper(private val context: Context) {
             .build()
     }
 
+    /** Heads-up poke alert; deliberately has no contentIntent (tap does nothing). */
+    fun pokeNotification(invokerName: String, message: String): Notification {
+        return NotificationCompat.Builder(context, TSPhoneApp.CHANNEL_POKE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.poke_title, invokerName))
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .build()
+    }
+
     fun notify(id: Int, notification: Notification) {
         notificationManager.notify(id, notification)
     }

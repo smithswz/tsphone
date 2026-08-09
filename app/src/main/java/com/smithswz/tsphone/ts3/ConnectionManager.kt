@@ -343,6 +343,14 @@ class ConnectionManager(
         }
     }
 
+    /** Poke from another client → heads-up notification (tap does nothing). */
+    fun onPoke(invokerName: String, message: String) {
+        notificationHelper.notify(
+            System.currentTimeMillis().toInt(),
+            notificationHelper.pokeNotification(invokerName, message)
+        )
+    }
+
     /** Incoming text message from the listener (ts3j thread). */
     fun onIncomingMessage(sessionKey: String, sessionType: String, senderName: String, body: String) {
         scope.launch {
