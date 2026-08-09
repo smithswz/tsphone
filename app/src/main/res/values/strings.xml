@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TS Phone</string>
+    <string name="channel_connection">连接状态</string>
+    <string name="channel_poke">Poke 提醒</string>
+    <string name="title_bookmarks">服务器</string>
+    <string name="title_server">服务器</string>
+    <string name="title_channel_chat">频道聊天</string>
+    <string name="title_private_chats">私聊</string>
+    <string name="title_private_chat">私聊</string>
+    <string name="title_settings">设置</string>
+    <string name="placeholder_under_construction">建设中…</string>
+</resources>
