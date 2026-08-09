@@ -18,13 +18,18 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -64,7 +72,10 @@ fun ServerScreen(
     val clients by vm.clients.collectAsStateWithLifecycle()
     val speakingClients by vm.speakingClients.collectAsStateWithLifecycle()
     val micMuted by vm.micMuted.collectAsStateWithLifecycle()
+    val outputMuted by vm.outputMuted.collectAsStateWithLifecycle()
     val speakerOn by vm.speakerOn.collectAsStateWithLifecycle()
+
+    var showOutputMenu by remember { mutableStateOf(false) }
 
     val serverName = (connectionState as? ConnectionState.Connected)?.serverName
         ?: stringResource(R.string.title_server)
@@ -76,11 +87,33 @@ fun ServerScreen(
                 IconButton(onClick = onOpenPrivateChats) {
                     Icon(Icons.Default.Chat, contentDescription = stringResource(R.string.title_private_chats))
                 }
-                IconButton(onClick = vm::toggleSpeaker) {
+                // Output mute: tap the speaker icon to silence incoming audio.
+                IconButton(onClick = vm::toggleOutputMute) {
                     Icon(
-                        if (speakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
-                        contentDescription = stringResource(R.string.toggle_speaker)
+                        if (outputMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = stringResource(R.string.toggle_output_mute)
                     )
+                }
+                // Speaker/earpiece selector.
+                Box {
+                    IconButton(onClick = { showOutputMenu = true }) {
+                        Icon(
+                            if (speakerOn) Icons.Default.Speaker else Icons.Default.Headset,
+                            contentDescription = stringResource(R.string.output_device)
+                        )
+                    }
+                    DropdownMenu(expanded = showOutputMenu, onDismissRequest = { showOutputMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.output_speaker)) },
+                            leadingIcon = { if (speakerOn) Icon(Icons.Default.Check, contentDescription = null) },
+                            onClick = { vm.setSpeaker(true); showOutputMenu = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.output_earpiece)) },
+                            leadingIcon = { if (!speakerOn) Icon(Icons.Default.Check, contentDescription = null) },
+                            onClick = { vm.setSpeaker(false); showOutputMenu = false }
+                        )
+                    }
                 }
                 IconButton(onClick = vm::toggleMic) {
                     Icon(

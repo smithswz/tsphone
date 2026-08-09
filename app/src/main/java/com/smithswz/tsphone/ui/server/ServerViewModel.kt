@@ -17,10 +17,12 @@ class ServerViewModel(private val manager: ConnectionManager) : ViewModel() {
     val clients: StateFlow<Map<Int, ClientInfo>> = manager.clients
     val speakingClients: StateFlow<Set<Int>> = manager.speakingClients
     val micMuted: StateFlow<Boolean> = manager.micMuted
+    val outputMuted: StateFlow<Boolean> = manager.outputMuted
     val speakerOn: StateFlow<Boolean> = manager.speakerOn
 
     fun toggleMic() = viewModelScope.launch { manager.toggleMic() }
-    fun toggleSpeaker() = viewModelScope.launch { manager.toggleSpeaker() }
+    fun toggleOutputMute() = viewModelScope.launch { manager.toggleOutputMute() }
+    fun setSpeaker(on: Boolean) = viewModelScope.launch { manager.setSpeaker(on) }
 
     /** Leaves the server entirely (returns to the bookmark list). */
     fun exit() = manager.disconnect()

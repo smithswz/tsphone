@@ -43,7 +43,12 @@
     <string name="disconnected">Disconnected</string>
     <string name="reconnect">Reconnect</string>
     <string name="toggle_mic">Microphone</string>
-    <string name="toggle_speaker">Speaker/earpiece</string>
+    <string name="toggle_output_mute">Mute output</string>
+    <string name="output_device">Output device</string>
+    <string name="output_speaker">Speaker</string>
+    <string name="output_earpiece">Earpiece</string>
+    <string name="input_muted_indicator">Microphone muted</string>
+    <string name="output_muted_indicator">Output muted</string>
     <string name="exit_server">Disconnect &amp; exit</string>
     <string name="self_marker">(me)</string>
 

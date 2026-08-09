@@ -55,12 +55,16 @@ class VoiceMixer(
 
     private var audioTrack: AudioTrack? = null
     private var mixerThread: Thread? = null
+    private val trackLock = Any()
 
     @Volatile
     private var running = false
 
     @Volatile
     private var speakerOn = true
+
+    @Volatile
+    private var outputMuted = false
 
     init {
         // Speaker/earpiece changes recreate the track with the right routing.
@@ -70,6 +74,7 @@ class VoiceMixer(
                 if (running) restartTrack()
             }
         }
+        scope.launch { settings.outputMuted.collect { outputMuted = it } }
     }
 
     /** Called from ts3j's connection thread — never blocks. */
@@ -84,7 +89,7 @@ class VoiceMixer(
 
     fun start() {
         running = true
-        audioTrack = createTrack()
+        synchronized(trackLock) { audioTrack = createTrack() }
         if (audioTrack == null) Log.w("TSPhone", "AudioTrack creation failed — no playback")
         mixerThread = Thread({ loop() }, "ts-mixer").apply { start() }
         Log.i("TSPhone", "voice mixer started (speakerOn=$speakerOn)")
@@ -94,9 +99,11 @@ class VoiceMixer(
         running = false
         mixerThread?.interrupt()
         mixerThread = null
-        audioTrack?.runCatching { stop() }
-        audioTrack?.release()
-        audioTrack = null
+        synchronized(trackLock) {
+            audioTrack?.runCatching { stop() }
+            audioTrack?.release()
+            audioTrack = null
+        }
         pending.clear()
         lastActive.clear()
         _speakingClients.value = emptySet()
@@ -135,7 +142,10 @@ class VoiceMixer(
 
     /** Mixes one frame per recently-active client and writes it out. */
     private fun mixAndWrite() {
-        val track = audioTrack ?: return
+        if (outputMuted) return // output mute: drop frames, keep routing intact
+        // Hold the track lock during the write so a speaker/earpiece switch
+        // cannot release the track mid-write (crashed the mixer thread).
+        val track = synchronized(trackLock) { audioTrack } ?: return
         val now = System.currentTimeMillis()
         val actives = pending.keys.filter { cid ->
             (lastActive[cid] ?: 0L) + ACTIVE_WINDOW_MS > now
@@ -152,8 +162,11 @@ class VoiceMixer(
                 mix[i] = v.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             }
         }
-        val written = track.write(mix, 0, mix.size)
-        if (written < 0) Log.w("TSPhone", "AudioTrack.write error: $written")
+        try {
+            synchronized(trackLock) { track.write(mix, 0, mix.size) }
+        } catch (e: IllegalStateException) {
+            // track released by a speaker/earpiece switch — next iteration uses the new one
+        }
     }
 
     private fun updateSpeakingState() {
@@ -169,9 +182,11 @@ class VoiceMixer(
 
     /** Re-routes output after a speaker/earpiece change. */
     private fun restartTrack() {
-        audioTrack?.runCatching { stop() }
-        audioTrack?.release()
-        audioTrack = createTrack()
+        synchronized(trackLock) {
+            audioTrack?.runCatching { stop() }
+            audioTrack?.release()
+            audioTrack = createTrack()
+        }
         if (audioTrack == null) Log.w("TSPhone", "track recreate failed (speakerOn=$speakerOn)")
     }
 
@@ -198,7 +213,12 @@ class VoiceMixer(
                         if (earpiece) AudioAttributes.USAGE_VOICE_COMMUNICATION
                         else AudioAttributes.USAGE_MEDIA
                     )
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    // MUSIC content forces the loudspeaker on Samsung; SPEECH
+                    // content routes to the earpiece there.
+                    .setContentType(
+                        if (earpiece) AudioAttributes.CONTENT_TYPE_SPEECH
+                        else AudioAttributes.CONTENT_TYPE_MUSIC
+                    )
                     .build()
             )
             .setAudioFormat(

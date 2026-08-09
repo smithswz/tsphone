@@ -51,7 +51,9 @@ data class ClientInfo(
     val nickname: String,
     val uniqueId: String?,
     val channelId: Int,
-    val isSelf: Boolean
+    val isSelf: Boolean,
+    val inputMuted: Boolean = false,
+    val outputMuted: Boolean = false
 )
 
 /**
@@ -92,6 +94,9 @@ class ConnectionManager(
 
     val micMuted: StateFlow<Boolean> =
         settingsRepository.masterMuted.stateIn(scope, SharingStarted.Eagerly, false)
+
+    val outputMuted: StateFlow<Boolean> =
+        settingsRepository.outputMuted.stateIn(scope, SharingStarted.Eagerly, false)
 
     /**
      * The test server sends cfid=0 in enter-view events and denies
@@ -200,6 +205,13 @@ class ConnectionManager(
 
                 selfId = newSocket.getClientId()
                 resolveClientChannels()
+                // Resync our persisted mute states with the server.
+                val micMutedNow = settingsRepository.masterMuted.first()
+                val outMutedNow = settingsRepository.outputMuted.first()
+                sendClientUpdate(
+                    "client_input_muted" to if (micMutedNow) "1" else "0",
+                    "client_output_muted" to if (outMutedNow) "1" else "0"
+                )
                 newSocket.setMicrophone(micSource)
                 newSocket.setVoiceHandler { body ->
                     voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
@@ -262,14 +274,44 @@ class ConnectionManager(
     }
 
     fun toggleMic() {
-        scope.launch { settingsRepository.setMasterMuted(!micMuted.value) }
+        scope.launch {
+            val muted = !micMuted.value
+            settingsRepository.setMasterMuted(muted)
+            sendClientUpdate("client_input_muted" to if (muted) "1" else "0")
+        }
     }
 
     val speakerOn: StateFlow<Boolean> =
         settingsRepository.speakerOn.stateIn(scope, SharingStarted.Eagerly, true)
 
-    fun toggleSpeaker() {
-        scope.launch { settingsRepository.setSpeakerOn(!speakerOn.value) }
+    fun setSpeaker(on: Boolean) {
+        scope.launch { settingsRepository.setSpeakerOn(on) }
+    }
+
+    fun toggleOutputMute() {
+        scope.launch {
+            val muted = !outputMuted.value
+            settingsRepository.setOutputMuted(muted)
+            sendClientUpdate("client_output_muted" to if (muted) "1" else "0")
+        }
+    }
+
+    /** Broadcasts our mute states; also called once per connect to resync. */
+    private fun sendClientUpdate(vararg params: Pair<String, String>) {
+        val socket = synchronized(socketLock) { socket } ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    socket.executeCommand(
+                        SingleCommand(
+                            "clientupdate",
+                            ProtocolRole.CLIENT,
+                            *params.map { (k, v) -> com.github.manevolent.ts3j.command.parameter.CommandSingleParameter(k, v) }.toTypedArray()
+                        )
+                    ).get(5_000)
+                }.onFailure { Log.w(TAG, "clientupdate failed: ${it.message}") }
+            }
+        }
     }
 
     fun sendChannelMessage(channelId: Int, text: String) {
@@ -359,7 +401,15 @@ class ConnectionManager(
         _channels.value = _channels.value + (id to ChannelInfo(id, parentId, name, order))
     }
 
-    fun upsertClient(id: Int, nickname: String, uniqueId: String?, channelId: Int, preserveChannel: Boolean = true) {
+    fun upsertClient(
+        id: Int,
+        nickname: String,
+        uniqueId: String?,
+        channelId: Int,
+        preserveChannel: Boolean = true,
+        inputMuted: Boolean? = null,
+        outputMuted: Boolean? = null
+    ) {
         val current = _clients.value[id]
         val effectiveChannel = if (preserveChannel && current != null) current.channelId else channelId
         _clients.value = _clients.value + (id to ClientInfo(
@@ -367,7 +417,19 @@ class ConnectionManager(
             nickname = nickname,
             uniqueId = uniqueId ?: current?.uniqueId,
             channelId = effectiveChannel,
-            isSelf = id == selfId
+            isSelf = id == selfId,
+            inputMuted = inputMuted ?: current?.inputMuted ?: false,
+            outputMuted = outputMuted ?: current?.outputMuted ?: false
+        ))
+    }
+
+    /** Partial mute-state update from notifyclientupdated. */
+    fun updateClientMutes(id: Int, inputMuted: Boolean?, outputMuted: Boolean?) {
+        val current = _clients.value[id] ?: return
+        if (inputMuted == null && outputMuted == null) return
+        _clients.value = _clients.value + (id to current.copy(
+            inputMuted = inputMuted ?: current.inputMuted,
+            outputMuted = outputMuted ?: current.outputMuted
         ))
     }
 

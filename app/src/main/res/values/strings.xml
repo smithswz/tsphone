@@ -43,7 +43,12 @@
     <string name="disconnected">已断开</string>
     <string name="reconnect">重新连接</string>
     <string name="toggle_mic">麦克风</string>
-    <string name="toggle_speaker">扬声器/听筒</string>
+    <string name="toggle_output_mute">输出静音</string>
+    <string name="output_device">输出设备</string>
+    <string name="output_speaker">外放</string>
+    <string name="output_earpiece">听筒</string>
+    <string name="input_muted_indicator">麦克风已静音</string>
+    <string name="output_muted_indicator">输出已静音</string>
     <string name="exit_server">断开并退出</string>
     <string name="self_marker">（我）</string>
 

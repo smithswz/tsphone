@@ -39,6 +39,9 @@ class SettingsRepository(private val context: Context) {
     val masterMuted: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.MASTER_MUTED] ?: false }
 
+    val outputMuted: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.OUTPUT_MUTED] ?: false }
+
     suspend fun setDefaultNickname(value: String) = context.dataStore.edit { it[Keys.DEFAULT_NICKNAME] = value }
 
     suspend fun setCodecQuality(value: CodecQuality) = context.dataStore.edit { it[Keys.CODEC_QUALITY] = value.label }
@@ -50,4 +53,6 @@ class SettingsRepository(private val context: Context) {
     suspend fun setInputGain(value: Float) = context.dataStore.edit { it[Keys.INPUT_GAIN] = value }
 
     suspend fun setMasterMuted(value: Boolean) = context.dataStore.edit { it[Keys.MASTER_MUTED] = value }
+
+    suspend fun setOutputMuted(value: Boolean) = context.dataStore.edit { it[Keys.OUTPUT_MUTED] = value }
 }

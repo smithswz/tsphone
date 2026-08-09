@@ -13,7 +13,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -37,7 +36,6 @@ fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(app.container.settingsRepository) }
     val codecQuality by vm.codecQuality.collectAsStateWithLifecycle()
     val vadSensitivity by vm.vadSensitivity.collectAsStateWithLifecycle()
-    val speakerOn by vm.speakerOn.collectAsStateWithLifecycle()
     val inputGain by vm.inputGain.collectAsStateWithLifecycle()
 
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.title_settings)) }) }) { padding ->
@@ -72,12 +70,6 @@ fun SettingsScreen() {
                     onValueChange = { vm.setVadSensitivity(it.toInt()) },
                     valueRange = 0f..100f
                 )
-            }
-
-            // Speaker output
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.setting_speaker), Modifier.weight(1f))
-                Switch(checked = speakerOn, onCheckedChange = { vm.setSpeakerOn(it) })
             }
 
             // Input gain

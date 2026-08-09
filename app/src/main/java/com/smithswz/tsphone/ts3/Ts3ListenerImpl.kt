@@ -4,6 +4,7 @@ import com.github.manevolent.ts3j.api.TextMessageTargetMode
 import com.github.manevolent.ts3j.event.ClientJoinEvent
 import com.github.manevolent.ts3j.event.ClientLeaveEvent
 import com.github.manevolent.ts3j.event.ClientMovedEvent
+import com.github.manevolent.ts3j.event.ClientUpdatedEvent
 import com.github.manevolent.ts3j.event.ChannelListEvent
 import com.github.manevolent.ts3j.event.ConnectedEvent
 import com.github.manevolent.ts3j.event.DisconnectedEvent
@@ -33,13 +34,23 @@ class Ts3ListenerImpl(private val manager: ConnectionManager) : TS3Listener {
         if (e.getClientType() != 0) return // skip server-query clients
         // The client's current channel arrives as "cfid" in notifycliententerview.
         val channelId = e.getMap()["cfid"]?.toIntOrNull() ?: 0
-        android.util.Log.w("TSPhone", "clientjoin: #${e.getClientId()} '${e.getClientNickname()}' cfid=${e.getMap()["cfid"]}")
         manager.upsertClient(
             id = e.getClientId(),
             nickname = e.getClientNickname(),
             uniqueId = e.getUniqueClientIdentifier(),
-            channelId = channelId
+            channelId = channelId,
+            inputMuted = e.getMap()["client_input_muted"]?.toIntOrNull() == 1,
+            outputMuted = e.getMap()["client_output_muted"]?.toIntOrNull() == 1
         )
+    }
+
+    override fun onClientChanged(e: ClientUpdatedEvent) {
+        val map = e.getMap()
+        val input = map["client_input_muted"]?.toIntOrNull()?.let { it == 1 }
+        val output = map["client_output_muted"]?.toIntOrNull()?.let { it == 1 }
+        if (input != null || output != null) {
+            manager.updateClientMutes(e.getClientId(), input, output)
+        }
     }
 
     override fun onClientLeave(e: ClientLeaveEvent) {
