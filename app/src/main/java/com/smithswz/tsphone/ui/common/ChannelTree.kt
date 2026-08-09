@@ -83,15 +83,16 @@ private fun ChannelRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .clickable { onChannelClick(channel) }
                 .padding(start = (depth * 16).dp, end = 16.dp)
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // The arrow toggles expansion; the row body opens the channel chat.
             Icon(
                 if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(20.dp).clickable { expanded = !expanded },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(

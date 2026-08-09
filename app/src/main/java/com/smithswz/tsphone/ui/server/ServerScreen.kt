@@ -17,9 +17,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,7 +51,12 @@ import com.smithswz.tsphone.ui.common.ChannelTree
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServerScreen(onExit: () -> Unit) {
+fun ServerScreen(
+    onExit: () -> Unit,
+    onOpenChannelChat: (Int) -> Unit,
+    onOpenPrivateChat: (String) -> Unit,
+    onOpenPrivateChats: () -> Unit
+) {
     val app = LocalContext.current.applicationContext as TSPhoneApp
     val vm: ServerViewModel = viewModel { ServerViewModel(app.container.connectionManager) }
     val connectionState by vm.connectionState.collectAsStateWithLifecycle()
@@ -57,6 +64,7 @@ fun ServerScreen(onExit: () -> Unit) {
     val clients by vm.clients.collectAsStateWithLifecycle()
     val speakingClients by vm.speakingClients.collectAsStateWithLifecycle()
     val micMuted by vm.micMuted.collectAsStateWithLifecycle()
+    val speakerOn by vm.speakerOn.collectAsStateWithLifecycle()
 
     val serverName = (connectionState as? ConnectionState.Connected)?.serverName
         ?: stringResource(R.string.title_server)
@@ -65,6 +73,15 @@ fun ServerScreen(onExit: () -> Unit) {
         TopAppBar(
             title = { Text(serverName) },
             actions = {
+                IconButton(onClick = onOpenPrivateChats) {
+                    Icon(Icons.Default.Chat, contentDescription = stringResource(R.string.title_private_chats))
+                }
+                IconButton(onClick = vm::toggleSpeaker) {
+                    Icon(
+                        if (speakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
+                        contentDescription = stringResource(R.string.toggle_speaker)
+                    )
+                }
                 IconButton(onClick = vm::toggleMic) {
                     Icon(
                         if (micMuted) Icons.Default.MicOff else Icons.Default.Mic,
@@ -95,8 +112,8 @@ fun ServerScreen(onExit: () -> Unit) {
                     channels = channels,
                     clients = clients,
                     speakingClients = speakingClients,
-                    onChannelClick = {},
-                    onClientClick = {}
+                    onChannelClick = { onOpenChannelChat(it.id) },
+                    onClientClick = { client -> client.uniqueId?.let(onOpenPrivateChat) }
                 )
             }
         }

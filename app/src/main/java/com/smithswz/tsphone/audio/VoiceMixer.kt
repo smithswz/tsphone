@@ -63,11 +63,11 @@ class VoiceMixer(
     private var speakerOn = true
 
     init {
-        // Speaker/earpiece routing changes apply live through AudioManager.
+        // Speaker/earpiece changes recreate the track with the right routing.
         scope.launch {
             settings.speakerOn.collect { on ->
                 speakerOn = on
-                if (running) audioManager.isSpeakerphoneOn = on
+                if (running) restartTrack()
             }
         }
     }
@@ -84,9 +84,6 @@ class VoiceMixer(
 
     fun start() {
         running = true
-        // Stay in MODE_NORMAL with a media stream: Samsung treats
-        // IN_COMMUNICATION + voice streams as a phone call (earpiece routing,
-        // call-mic processing), which broke both directions on the test device.
         audioTrack = createTrack()
         if (audioTrack == null) Log.w("TSPhone", "AudioTrack creation failed — no playback")
         mixerThread = Thread({ loop() }, "ts-mixer").apply { start() }
@@ -170,14 +167,37 @@ class VoiceMixer(
         }
     }
 
+    /** Re-routes output after a speaker/earpiece change. */
+    private fun restartTrack() {
+        audioTrack?.runCatching { stop() }
+        audioTrack?.release()
+        audioTrack = createTrack()
+        if (audioTrack == null) Log.w("TSPhone", "track recreate failed (speakerOn=$speakerOn)")
+    }
+
+    /**
+     * Speaker: media stream in normal mode (loudspeaker). Earpiece: voice
+     * communication stream in communication mode without the speakerphone
+     * flag (routes to the handset earpiece, like a phone call).
+     */
     private fun createTrack(): AudioTrack? {
+        val earpiece = !speakerOn
+        if (earpiece) {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager.isSpeakerphoneOn = false
+        } else {
+            audioManager.mode = AudioManager.MODE_NORMAL
+        }
         val minBuffer = AudioTrack.getMinBufferSize(
             OpusCodec.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setUsage(
+                        if (earpiece) AudioAttributes.USAGE_VOICE_COMMUNICATION
+                        else AudioAttributes.USAGE_MEDIA
+                    )
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )

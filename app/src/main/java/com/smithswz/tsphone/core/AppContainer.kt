@@ -36,6 +36,7 @@ class AppContainer(context: Context) {
         identityRepository = identityRepository,
         settingsRepository = settingsRepository,
         bookmarkRepository = bookmarkRepository,
+        chatRepository = chatRepository,
         notificationHelper = notificationHelper
     )
 }

@@ -12,9 +12,11 @@ import com.smithswz.tsphone.audio.TSMicSource
 import com.smithswz.tsphone.audio.VoiceFrame
 import com.smithswz.tsphone.audio.VoiceMixer
 import com.smithswz.tsphone.data.db.BookmarkEntity
+import com.smithswz.tsphone.data.db.MessageEntity
 import com.smithswz.tsphone.data.prefs.IdentityRepository
 import com.smithswz.tsphone.data.prefs.SettingsRepository
 import com.smithswz.tsphone.data.repo.BookmarkRepository
+import com.smithswz.tsphone.data.repo.ChatRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +65,7 @@ class ConnectionManager(
     private val identityRepository: IdentityRepository,
     private val settingsRepository: SettingsRepository,
     private val bookmarkRepository: BookmarkRepository,
+    private val chatRepository: ChatRepository,
     private val notificationHelper: NotificationHelper
 ) {
 
@@ -90,6 +93,41 @@ class ConnectionManager(
     val micMuted: StateFlow<Boolean> =
         settingsRepository.masterMuted.stateIn(scope, SharingStarted.Eagerly, false)
 
+    /**
+     * The test server sends cfid=0 in enter-view events and denies
+     * channellist/clientlist, so the per-client channel must come from
+     * clientinfo queries after the join events settle.
+     */
+    private fun resolveClientChannels() {
+        scope.launch {
+            delay(2_000)
+            val s = synchronized(socketLock) { socket } ?: return@launch
+            val known = _clients.value.keys.toList()
+            for (clid in known) {
+                withContext(Dispatchers.IO) {
+                    runCatching { s.getClientInfo(clid) }
+                        .onSuccess { c ->
+                            c.getMap()["cid"]?.toIntOrNull()?.takeIf { it != 0 }?.let { cid ->
+                                moveClient(clid, cid)
+                            }
+                        }
+                        .onFailure { Log.w(TAG, "clientinfo #$clid: ${it.message}") }
+                }
+            }
+        }
+    }
+
+    /** Bumped after every Room message write; chat screens reload on change. */
+    private val _messagesVersion = MutableStateFlow(0L)
+    val messagesVersion: StateFlow<Long> = _messagesVersion.asStateFlow()
+
+    @Volatile
+    private var selfNickname = ""
+
+    /** The channel our own client is currently in. */
+    val currentChannelId: Int?
+        get() = _clients.value[selfId]?.channelId?.takeIf { it != 0 }
+
     fun connect(bookmark: BookmarkEntity) {
         if (_connectionState.value == ConnectionState.Connecting ||
             _connectionState.value is ConnectionState.Connected
@@ -114,6 +152,7 @@ class ConnectionManager(
                 }
                 newSocket.setIdentity(identity)
                 newSocket.setNickname(nickname)
+                selfNickname = nickname
                 newSocket.addListener(Ts3ListenerImpl(this@ConnectionManager))
                 newSocket.setExceptionHandler { e ->
                     markDisconnected(e.message ?: "connection error")
@@ -130,6 +169,20 @@ class ConnectionManager(
                     // the channel tree still populates from subscription events.
                     runCatching { newSocket.subscribeAll() }
                         .onFailure { Log.w(TAG, "subscribeAll denied: ${it.message}") }
+                    // The full channel list comes from the channellist command;
+                    // subscription events only cover changes.
+                    runCatching {
+                        newSocket.getChannels().get().forEach { ch ->
+                            val m = ch.getMap()
+                            val name = m["channel_name"] ?: return@forEach
+                            upsertChannel(
+                                id = ch.getId(),
+                                parentId = m["channel_parent"]?.toIntOrNull() ?: 0,
+                                name = name,
+                                order = m["channel_order"]?.toIntOrNull() ?: 0
+                            )
+                        }
+                    }.onFailure { Log.w(TAG, "channellist denied: ${it.message}") }
                     runCatching { newSocket.listClients() }
                         .onFailure { Log.w(TAG, "listClients denied: ${it.message}") }
                         .getOrDefault(emptyList())
@@ -146,6 +199,7 @@ class ConnectionManager(
                 }
 
                 selfId = newSocket.getClientId()
+                resolveClientChannels()
                 newSocket.setMicrophone(micSource)
                 newSocket.setVoiceHandler { body ->
                     voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
@@ -209,6 +263,77 @@ class ConnectionManager(
 
     fun toggleMic() {
         scope.launch { settingsRepository.setMasterMuted(!micMuted.value) }
+    }
+
+    val speakerOn: StateFlow<Boolean> =
+        settingsRepository.speakerOn.stateIn(scope, SharingStarted.Eagerly, true)
+
+    fun toggleSpeaker() {
+        scope.launch { settingsRepository.setSpeakerOn(!speakerOn.value) }
+    }
+
+    fun sendChannelMessage(channelId: Int, text: String) {
+        scope.launch {
+            val socket = synchronized(socketLock) { socket } ?: return@launch
+            runCatching { socket.sendChannelMessage(channelId, text) }
+                .onSuccess {
+                    persistOutgoing(MessageEntity.channelKey(channelId), MessageEntity.TYPE_CHANNEL, selfNickname, text)
+                }
+                .onFailure { Log.w(TAG, "sendChannelMessage failed: ${it.message}") }
+        }
+    }
+
+    fun sendPrivateMessage(peerUid: String, text: String) {
+        scope.launch {
+            val socket = synchronized(socketLock) { socket } ?: return@launch
+            val client = _clients.value.values.firstOrNull { it.uniqueId == peerUid }
+                ?: return@launch
+            runCatching { socket.sendPrivateMessage(client.id, text) }
+                .onSuccess {
+                    persistOutgoing(
+                        MessageEntity.privateKey(peerUid),
+                        MessageEntity.TYPE_PRIVATE,
+                        client.nickname,
+                        text
+                    )
+                }
+                .onFailure { Log.w(TAG, "sendPrivateMessage failed: ${it.message}") }
+        }
+    }
+
+    /** Incoming text message from the listener (ts3j thread). */
+    fun onIncomingMessage(sessionKey: String, sessionType: String, senderName: String, body: String) {
+        scope.launch {
+            chatRepository.insert(
+                MessageEntity(
+                    sessionKey = sessionKey,
+                    sessionType = sessionType,
+                    direction = MessageEntity.DIRECTION_IN,
+                    senderName = senderName,
+                    peerName = senderName,
+                    body = body,
+                    ts = System.currentTimeMillis()
+                )
+            )
+            _messagesVersion.value++
+        }
+    }
+
+    private fun persistOutgoing(sessionKey: String, sessionType: String, peerName: String, body: String) {
+        scope.launch {
+            chatRepository.insert(
+                MessageEntity(
+                    sessionKey = sessionKey,
+                    sessionType = sessionType,
+                    direction = MessageEntity.DIRECTION_OUT,
+                    senderName = selfNickname,
+                    peerName = peerName,
+                    body = body,
+                    ts = System.currentTimeMillis()
+                )
+            )
+            _messagesVersion.value++
+        }
     }
 
     fun markConnected(serverName: String) {

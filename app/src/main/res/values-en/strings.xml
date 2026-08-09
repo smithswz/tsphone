@@ -43,6 +43,7 @@
     <string name="disconnected">Disconnected</string>
     <string name="reconnect">Reconnect</string>
     <string name="toggle_mic">Microphone</string>
+    <string name="toggle_speaker">Speaker/earpiece</string>
     <string name="exit_server">Disconnect &amp; exit</string>
     <string name="self_marker">(me)</string>
 
@@ -52,4 +53,8 @@
     <string name="notif_tap_to_reconnect">Tap to reconnect</string>
 
     <string name="speaking_indicator">Speaking</string>
+
+    <string name="chat_input_hint">Type a message</string>
+    <string name="chat_send">Send</string>
+    <string name="no_private_chats">No private chats yet. Tap a user in the channel tree to start one.</string>
 </resources>
