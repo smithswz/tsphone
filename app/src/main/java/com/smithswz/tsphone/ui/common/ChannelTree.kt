@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ import com.smithswz.tsphone.ts3.ClientInfo
 fun ChannelTree(
     channels: Map<Int, ChannelInfo>,
     clients: Map<Int, ClientInfo>,
+    speakingClients: Set<Int>,
     onChannelClick: (ChannelInfo) -> Unit,
     onClientClick: (ClientInfo) -> Unit
 ) {
@@ -49,6 +51,7 @@ fun ChannelTree(
                 channel = channel,
                 channels = channels,
                 clients = clients,
+                speakingClients = speakingClients,
                 depth = 0,
                 onChannelClick = onChannelClick,
                 onClientClick = onClientClick
@@ -62,6 +65,7 @@ private fun ChannelRow(
     channel: ChannelInfo,
     channels: Map<Int, ChannelInfo>,
     clients: Map<Int, ClientInfo>,
+    speakingClients: Set<Int>,
     depth: Int,
     onChannelClick: (ChannelInfo) -> Unit,
     onClientClick: (ClientInfo) -> Unit
@@ -104,13 +108,19 @@ private fun ChannelRow(
 
         if (expanded) {
             members.forEach { client ->
-                ClientRow(client = client, depth = depth + 1, onClick = { onClientClick(client) })
+                ClientRow(
+                    client = client,
+                    depth = depth + 1,
+                    isSpeaking = client.id in speakingClients,
+                    onClick = { onClientClick(client) }
+                )
             }
             children.forEach { child ->
                 ChannelRow(
                     channel = child,
                     channels = channels,
                     clients = clients,
+                    speakingClients = speakingClients,
                     depth = depth + 1,
                     onChannelClick = onChannelClick,
                     onClientClick = onClientClick
@@ -121,7 +131,7 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun ClientRow(client: ClientInfo, depth: Int, onClick: () -> Unit) {
+private fun ClientRow(client: ClientInfo, depth: Int, isSpeaking: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -142,5 +152,13 @@ private fun ClientRow(client: ClientInfo, depth: Int, onClick: () -> Unit) {
             modifier = Modifier.padding(start = 8.dp),
             color = if (client.isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
         )
+        if (isSpeaking) {
+            Icon(
+                Icons.Default.VolumeUp,
+                contentDescription = stringResource(R.string.speaking_indicator),
+                modifier = Modifier.padding(start = 6.dp).size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }

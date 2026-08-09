@@ -55,6 +55,7 @@ fun ServerScreen(onExit: () -> Unit) {
     val connectionState by vm.connectionState.collectAsStateWithLifecycle()
     val channels by vm.channels.collectAsStateWithLifecycle()
     val clients by vm.clients.collectAsStateWithLifecycle()
+    val speakingClients by vm.speakingClients.collectAsStateWithLifecycle()
     val micMuted by vm.micMuted.collectAsStateWithLifecycle()
 
     val serverName = (connectionState as? ConnectionState.Connected)?.serverName
@@ -90,7 +91,13 @@ fun ServerScreen(onExit: () -> Unit) {
                     Text(stringResource(R.string.connecting))
                 }
                 is ConnectionState.Disconnected -> DisconnectPanel(reason = (connectionState as ConnectionState.Disconnected).reason, onReconnect = vm::reconnect)
-                else -> ChannelTree(channels = channels, clients = clients, onChannelClick = {}, onClientClick = {})
+                else -> ChannelTree(
+                    channels = channels,
+                    clients = clients,
+                    speakingClients = speakingClients,
+                    onChannelClick = {},
+                    onClientClick = {}
+                )
             }
         }
     }

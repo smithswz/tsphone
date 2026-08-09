@@ -50,4 +50,6 @@
     <string name="notif_connected">Connected: %1$s</string>
     <string name="notif_disconnected">Disconnected</string>
     <string name="notif_tap_to_reconnect">Tap to reconnect</string>
+
+    <string name="speaking_indicator">Speaking</string>
 </resources>

@@ -50,4 +50,6 @@
     <string name="notif_connected">已连接：%1$s</string>
     <string name="notif_disconnected">已断开</string>
     <string name="notif_tap_to_reconnect">点击重连</string>
+
+    <string name="speaking_indicator">正在说话</string>
 </resources>

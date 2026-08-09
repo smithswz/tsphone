@@ -63,7 +63,7 @@ class TSMicSource(
         )
         val bufferSize = maxOf(minBuffer, OpusCodec.FRAME_SIZE * 2 * 4)
         val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.MIC,
             OpusCodec.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,

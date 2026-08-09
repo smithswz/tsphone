@@ -9,6 +9,8 @@ import com.github.manevolent.ts3j.protocol.TS3DNS
 import com.github.manevolent.ts3j.protocol.socket.client.LocalTeamspeakClientSocket
 import com.smithswz.tsphone.audio.OpusCodec
 import com.smithswz.tsphone.audio.TSMicSource
+import com.smithswz.tsphone.audio.VoiceFrame
+import com.smithswz.tsphone.audio.VoiceMixer
 import com.smithswz.tsphone.data.db.BookmarkEntity
 import com.smithswz.tsphone.data.prefs.IdentityRepository
 import com.smithswz.tsphone.data.prefs.SettingsRepository
@@ -71,6 +73,10 @@ class ConnectionManager(
 
     private val opusCodec = OpusCodec()
     private val micSource = TSMicSource(context, settingsRepository, scope, opusCodec)
+    private val voiceMixer = VoiceMixer(context, opusCodec, settingsRepository, scope)
+
+    /** Clients currently speaking (voice receive). */
+    val speakingClients: StateFlow<Set<Int>> = voiceMixer.speakingClients
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -141,7 +147,14 @@ class ConnectionManager(
 
                 selfId = newSocket.getClientId()
                 newSocket.setMicrophone(micSource)
+                newSocket.setVoiceHandler { body ->
+                    voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
+                }
+                newSocket.setWhisperHandler { body ->
+                    voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
+                }
                 micSource.start()
+                voiceMixer.start()
                 bookmarkRepository.touchLastConnected(bookmark.id)
                 startWatchdog()
                 Log.i(TAG, "connected to ${bookmark.address}:${bookmark.port} as #$selfId")
@@ -188,6 +201,7 @@ class ConnectionManager(
     fun disconnect() {
         scope.launch {
             micSource.stop()
+            voiceMixer.stop()
             synchronized(socketLock) { socket?.disconnectSafely() }
             _connectionState.value = ConnectionState.Idle
         }
@@ -206,6 +220,7 @@ class ConnectionManager(
         if (current is ConnectionState.Idle) return
         Log.w(TAG, "markDisconnected: $reason (was $current)")
         micSource.stop()
+        voiceMixer.stop()
         synchronized(socketLock) {
             socket?.disconnectSafely()
             socket = null

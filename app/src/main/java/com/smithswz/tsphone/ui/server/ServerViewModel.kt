@@ -15,6 +15,7 @@ class ServerViewModel(private val manager: ConnectionManager) : ViewModel() {
     val connectionState: StateFlow<ConnectionState> = manager.connectionState
     val channels: StateFlow<Map<Int, ChannelInfo>> = manager.channels
     val clients: StateFlow<Map<Int, ClientInfo>> = manager.clients
+    val speakingClients: StateFlow<Set<Int>> = manager.speakingClients
     val micMuted: StateFlow<Boolean> = manager.micMuted
 
     fun toggleMic() = viewModelScope.launch { manager.toggleMic() }
