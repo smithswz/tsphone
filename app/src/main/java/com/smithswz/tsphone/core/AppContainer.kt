@@ -31,6 +31,7 @@ class AppContainer(context: Context) {
     val identityState: StateFlow<IdentityState> = identityRepository.state
     val notificationHelper = NotificationHelper(appContext)
     val connectionManager = ConnectionManager(
+        context = appContext,
         scope = appScope,
         identityRepository = identityRepository,
         settingsRepository = settingsRepository,

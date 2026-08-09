@@ -67,8 +67,9 @@ dependencies {
 
     // TeamSpeak 3 client protocol
     implementation("com.github.Manevolent:ts3j:master-SNAPSHOT")
-    // JNA runtime for the app's own libopus binding (ticket 05)
-    implementation("net.java.dev.jna:jna:5.16.0")
+    // JNA runtime for the app's own libopus binding (ticket 05).
+    // 5.17+ publishes an AAR with the Android libjnidispatch natives.
+    implementation("net.java.dev.jna:jna:5.19.1")
 
     testImplementation("junit:junit:4.13.2")
 

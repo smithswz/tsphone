@@ -16,15 +16,19 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service (type `microphone`) that owns the TS3 connection and, from
- * ticket 05 on, the voice pipeline. Starts its foreground notification
- * immediately (required for a microphone-type FGS), then hands the actual work
- * to [ConnectionManager].
+ * Foreground service (type `microphone`) that owns the TS3 connection and the
+ * voice pipeline. Android requires startForeground() promptly after the app
+ * called startForegroundService() — so it happens synchronously in
+ * onStartCommand, before any connection work.
  */
 class TS3Service : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var notificationHelper: NotificationHelper
+
+    /** True once onStartCommand has put the service into the foreground. */
+    @Volatile
+    private var foregroundStarted = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -36,28 +40,29 @@ class TS3Service : Service() {
         serviceScope.launch {
             manager.connectionState.collect { state ->
                 when (state) {
-                    is ConnectionState.Connecting -> startConnectionForeground(
-                        getString(R.string.notif_connecting),
-                        ""
-                    )
-                    is ConnectionState.Connected -> startConnectionForeground(
-                        getString(R.string.notif_connected, state.serverName),
-                        ""
-                    )
-                    is ConnectionState.Disconnected -> startConnectionForeground(
-                        getString(R.string.notif_disconnected),
-                        getString(R.string.notif_tap_to_reconnect)
-                    )
+                    is ConnectionState.Connecting ->
+                        updateForeground(getString(R.string.notif_connecting), "")
+                    is ConnectionState.Connected ->
+                        updateForeground(getString(R.string.notif_connected, state.serverName), "")
+                    is ConnectionState.Disconnected ->
+                        updateForeground(
+                            getString(R.string.notif_disconnected),
+                            getString(R.string.notif_tap_to_reconnect)
+                        )
                     ConnectionState.Idle -> {
-                        ServiceCompat.stopForeground(this@TS3Service, ServiceCompat.STOP_FOREGROUND_REMOVE)
-                        stopSelf()
+                        // Only act on Idle once the service is actually foreground;
+                        // the initial StateFlow emission happens before onStartCommand.
+                        if (foregroundStarted) {
+                            ServiceCompat.stopForeground(this@TS3Service, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun startConnectionForeground(title: String, text: String) {
+    private fun updateForeground(title: String, text: String) {
         ServiceCompat.startForeground(
             this,
             NotificationHelper.NOTIFICATION_CONNECTION,
@@ -67,6 +72,10 @@ class TS3Service : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Synchronous foreground start — the 5 s ANR window starts now.
+        updateForeground(getString(R.string.notif_connecting), "")
+        foregroundStarted = true
+
         val bookmarkId = intent?.getLongExtra(EXTRA_BOOKMARK_ID, -1L)
         if (bookmarkId != null && bookmarkId > 0) {
             val app = application as TSPhoneApp

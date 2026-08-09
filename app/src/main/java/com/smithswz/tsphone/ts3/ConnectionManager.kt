@@ -1,9 +1,14 @@
 package com.smithswz.tsphone.ts3
 
+import android.content.Context
+import android.net.ConnectivityManager
 import android.util.Log
 import com.github.manevolent.ts3j.command.SingleCommand
 import com.github.manevolent.ts3j.protocol.ProtocolRole
+import com.github.manevolent.ts3j.protocol.TS3DNS
 import com.github.manevolent.ts3j.protocol.socket.client.LocalTeamspeakClientSocket
+import com.smithswz.tsphone.audio.OpusCodec
+import com.smithswz.tsphone.audio.TSMicSource
 import com.smithswz.tsphone.data.db.BookmarkEntity
 import com.smithswz.tsphone.data.prefs.IdentityRepository
 import com.smithswz.tsphone.data.prefs.SettingsRepository
@@ -20,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.InetAddress
 import java.net.InetSocketAddress
 
 sealed interface ConnectionState {
@@ -50,6 +56,7 @@ data class ClientInfo(
  * UI can collect from anywhere.
  */
 class ConnectionManager(
+    private val context: Context,
     private val scope: CoroutineScope,
     private val identityRepository: IdentityRepository,
     private val settingsRepository: SettingsRepository,
@@ -61,6 +68,9 @@ class ConnectionManager(
     private var socket: LocalTeamspeakClientSocket? = null
     private var selfId: Int = 0
     private var lastBookmark: BookmarkEntity? = null
+
+    private val opusCodec = OpusCodec()
+    private val micSource = TSMicSource(context, settingsRepository, scope, opusCodec)
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -104,25 +114,34 @@ class ConnectionManager(
                 }
 
                 withContext(Dispatchers.IO) {
-                    newSocket.connect(
-                        InetSocketAddress(bookmark.address, bookmark.port),
-                        bookmark.password ?: "",
-                        10_000L
-                    )
-                    newSocket.subscribeAll()
-                    newSocket.listClients().forEach { c ->
-                        // listClients lacks the unique id; events carry it and win on merge
-                        upsertClient(
-                            id = c.id,
-                            nickname = c.nickname,
-                            uniqueId = null,
-                            channelId = 0,
-                            preserveChannel = false
-                        )
-                    }
+                    // Resolve like the official client: TSDNS SRV lookup first
+                    // (`_ts3._udp.<host>` — custom TS3 domains often have NO
+                    // A record and a non-default port), then plain A-record
+                    // fallback. ts3j NPEs on unresolved addresses otherwise.
+                    val target = resolveTarget(bookmark)
+                    newSocket.connect(target, bookmark.password ?: "", 10_000L)
+                    // Best-effort: some servers deny these to normal clients;
+                    // the channel tree still populates from subscription events.
+                    runCatching { newSocket.subscribeAll() }
+                        .onFailure { Log.w(TAG, "subscribeAll denied: ${it.message}") }
+                    runCatching { newSocket.listClients() }
+                        .onFailure { Log.w(TAG, "listClients denied: ${it.message}") }
+                        .getOrDefault(emptyList())
+                        .forEach { c ->
+                            // listClients lacks the unique id; events carry it and win on merge
+                            upsertClient(
+                                id = c.id,
+                                nickname = c.nickname,
+                                uniqueId = null,
+                                channelId = 0,
+                                preserveChannel = false
+                            )
+                        }
                 }
 
                 selfId = newSocket.getClientId()
+                newSocket.setMicrophone(micSource)
+                micSource.start()
                 bookmarkRepository.touchLastConnected(bookmark.id)
                 startWatchdog()
                 Log.i(TAG, "connected to ${bookmark.address}:${bookmark.port} as #$selfId")
@@ -168,6 +187,7 @@ class ConnectionManager(
     /** User-initiated full disconnect: returns to Idle (no banner, service stops). */
     fun disconnect() {
         scope.launch {
+            micSource.stop()
             synchronized(socketLock) { socket?.disconnectSafely() }
             _connectionState.value = ConnectionState.Idle
         }
@@ -185,6 +205,7 @@ class ConnectionManager(
         val current = _connectionState.value
         if (current is ConnectionState.Idle) return
         Log.w(TAG, "markDisconnected: $reason (was $current)")
+        micSource.stop()
         synchronized(socketLock) {
             socket?.disconnectSafely()
             socket = null
@@ -219,6 +240,63 @@ class ConnectionManager(
         _clients.value = _clients.value + (id to current.copy(channelId = channelId))
     }
 
+    private fun resolveTarget(bookmark: BookmarkEntity): InetSocketAddress {
+        // dnsjava reads /etc/resolv.conf which does not exist on Android —
+        // feed it the phone's DNS servers via the dns.server property
+        // (comma-separated) and refresh its cached config.
+        val configured = runCatching { System.getProperty("dns.server") }.getOrNull()
+        if (configured.isNullOrBlank()) {
+            val servers = connectivityDnsServers().ifEmpty { FALLBACK_DNS }
+            Log.w(TAG, "phone DNS servers: ${servers.joinToString(", ")}")
+            if (servers.isNotEmpty()) {
+                System.setProperty("dns.server", servers.joinToString(","))
+                runCatching { org.xbill.DNS.ResolverConfig.refresh() }
+            }
+        }
+        val ts3dns = runCatching { TS3DNS.lookup(bookmark.address) }
+            .onFailure { Log.w(TAG, "TS3DNS.lookup failed: ${it.message}") }
+            .getOrNull()
+        ts3dns?.firstOrNull()?.let {
+            Log.w(TAG, "TS3DNS resolved ${bookmark.address} -> ${it.address?.hostAddress}:${it.port}")
+            return it
+        }
+        Log.w(TAG, "TS3DNS lookup returned nothing for ${bookmark.address}")
+        // Fallback: plain A record with the bookmark's port
+        val ip = try {
+            InetAddress.getByName(bookmark.address)
+        } catch (e: Exception) {
+            throw IllegalStateException("无法解析服务器地址: ${bookmark.address}")
+        }
+        return InetSocketAddress(ip, bookmark.port)
+    }
+
+    private fun connectivityDnsServers(): List<String> {
+        val result = mutableListOf<String>()
+        runCatching {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.allNetworks.forEach { net ->
+                cm.getLinkProperties(net)?.dnsServers?.forEach { result.add(it.hostAddress) }
+            }
+        }
+        if (result.isEmpty()) {
+            // Fallback: the DHCP-assigned DNS from wifi
+            runCatching {
+                val wifi = context.getApplicationContext()
+                    .getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                val dhcp = wifi.dhcpInfo
+                listOf(dhcp.dns1, dhcp.dns2).forEach { dns ->
+                    if (dns != 0) result.add(
+                        "%d.%d.%d.%d".format(
+                            (dns ushr 24) and 0xFF, (dns ushr 16) and 0xFF,
+                            (dns ushr 8) and 0xFF, dns and 0xFF
+                        )
+                    )
+                }
+            }
+        }
+        return result.distinct()
+    }
+
     private fun LocalTeamspeakClientSocket.disconnectSafely() {
         try {
             disconnect()
@@ -231,5 +309,8 @@ class ConnectionManager(
         private const val TAG = "TSPhone"
         private const val WATCHDOG_INTERVAL_MS = 30_000L
         private const val WATCHDOG_COMMAND_TIMEOUT_MS = 5_000L
+
+        /** Public resolvers used when the phone's network hands out no DNS. */
+        private val FALLBACK_DNS = listOf("223.5.5.5", "119.29.29.29", "114.114.114.114")
     }
 }
