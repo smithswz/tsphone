@@ -8,7 +8,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.smithswz.tsphone.R
+import com.smithswz.tsphone.ui.bookmarks.BookmarksScreen
 import com.smithswz.tsphone.ui.common.PlaceholderScreen
+import com.smithswz.tsphone.ui.server.ServerScreen
+import com.smithswz.tsphone.ui.settings.SettingsScreen
 
 object Routes {
     const val BOOKMARKS = "bookmarks"
@@ -27,10 +30,13 @@ fun AppNavHost() {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = Routes.BOOKMARKS) {
         composable(Routes.BOOKMARKS) {
-            PlaceholderScreen(stringResource(R.string.title_bookmarks))
+            BookmarksScreen(
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onConnect = { navController.navigate(Routes.SERVER) }
+            )
         }
         composable(Routes.SERVER) {
-            PlaceholderScreen(stringResource(R.string.title_server))
+            ServerScreen(onExit = { navController.popBackStack() })
         }
         composable(
             route = Routes.CHANNEL_CHAT,
@@ -48,7 +54,7 @@ fun AppNavHost() {
             PlaceholderScreen(stringResource(R.string.title_private_chat))
         }
         composable(Routes.SETTINGS) {
-            PlaceholderScreen(stringResource(R.string.title_settings))
+            SettingsScreen()
         }
     }
 }

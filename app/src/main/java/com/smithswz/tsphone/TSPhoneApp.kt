@@ -3,10 +3,13 @@ package com.smithswz.tsphone
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import com.smithswz.tsphone.core.AppContainer
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.Security
 
 class TSPhoneApp : Application() {
+
+    val container: AppContainer by lazy { AppContainer(this) }
 
     override fun onCreate() {
         super.onCreate()
