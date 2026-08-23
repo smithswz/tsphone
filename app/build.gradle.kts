@@ -36,6 +36,7 @@ android {
         compose = true
         buildConfig = true
     }
+
 }
 
 kotlin {
@@ -65,8 +66,14 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    // TeamSpeak 3 client protocol
-    implementation("com.github.Manevolent:ts3j:master-SNAPSHOT")
+    // TeamSpeak 3 client protocol — vendored jar (JitPack SNAPSHOT resolution
+    // proved unstable); its transitive deps are stable Maven Central artifacts.
+    implementation(files("libs/ts3j.jar"))
+    implementation("org.bouncycastle:bcprov-jdk15on:1.67")
+    implementation("commons-lang:commons-lang:2.6")
+    implementation("dnsjava:dnsjava:2.1.8")
+    implementation("org.ini4j:ini4j:0.5.1")
+
     // JNA runtime for the app's own libopus binding (ticket 05).
     // 5.17+ publishes an AAR with the Android libjnidispatch natives.
     implementation("net.java.dev.jna:jna:5.19.1")

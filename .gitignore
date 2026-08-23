@@ -11,6 +11,7 @@ build/
 # Local machine config
 local.properties
 .claude/settings.local.json
+.claude/
 
 # Agent-internal scratch (tickets)
 .scratch/

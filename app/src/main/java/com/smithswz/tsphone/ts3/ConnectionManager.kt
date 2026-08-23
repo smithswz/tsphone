@@ -7,7 +7,9 @@ import com.github.manevolent.ts3j.command.SingleCommand
 import com.github.manevolent.ts3j.protocol.ProtocolRole
 import com.github.manevolent.ts3j.protocol.TS3DNS
 import com.github.manevolent.ts3j.protocol.socket.client.LocalTeamspeakClientSocket
+import com.smithswz.tsphone.audio.EchoCanceller
 import com.smithswz.tsphone.audio.OpusCodec
+import com.smithswz.tsphone.audio.PlaybackReference
 import com.smithswz.tsphone.audio.TSMicSource
 import com.smithswz.tsphone.audio.VoiceFrame
 import com.smithswz.tsphone.audio.VoiceMixer
@@ -77,8 +79,14 @@ class ConnectionManager(
     private var lastBookmark: BookmarkEntity? = null
 
     private val opusCodec = OpusCodec()
-    private val micSource = TSMicSource(context, settingsRepository, scope, opusCodec)
-    private val voiceMixer = VoiceMixer(context, opusCodec, settingsRepository, scope)
+    private val echoCanceller = EchoCanceller()
+    private val playbackReference = PlaybackReference()
+    private val micSource = TSMicSource(
+        context, settingsRepository, scope, opusCodec, echoCanceller, playbackReference
+    )
+    private val voiceMixer = VoiceMixer(
+        context, opusCodec, settingsRepository, scope, playbackReference, echoCanceller
+    )
 
     /** Clients currently speaking (voice receive). */
     val speakingClients: StateFlow<Set<Int>> = voiceMixer.speakingClients
@@ -214,12 +222,18 @@ class ConnectionManager(
                 )
                 newSocket.setMicrophone(micSource)
                 newSocket.setVoiceHandler { body ->
-                    voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
+                    voiceMixer.offer(
+                        VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData(), body.getPacketId())
+                    )
                 }
                 newSocket.setWhisperHandler { body ->
-                    voiceMixer.offer(VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData()))
+                    voiceMixer.offer(
+                        VoiceFrame(body.getClientId(), body.getCodecType(), body.getCodecData(), body.getPacketId())
+                    )
                 }
                 micSource.start()
+                // AEC reference: the mixer's track shares the mic's audio session.
+                voiceMixer.setReferenceSessionId(micSource.audioSessionId)
                 voiceMixer.start()
                 bookmarkRepository.touchLastConnected(bookmark.id)
                 startWatchdog()

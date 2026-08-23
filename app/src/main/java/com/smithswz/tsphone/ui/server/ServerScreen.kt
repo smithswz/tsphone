@@ -28,8 +28,6 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,9 +71,6 @@ fun ServerScreen(
     val speakingClients by vm.speakingClients.collectAsStateWithLifecycle()
     val micMuted by vm.micMuted.collectAsStateWithLifecycle()
     val outputMuted by vm.outputMuted.collectAsStateWithLifecycle()
-    val speakerOn by vm.speakerOn.collectAsStateWithLifecycle()
-
-    var showOutputMenu by remember { mutableStateOf(false) }
 
     val serverName = (connectionState as? ConnectionState.Connected)?.serverName
         ?: stringResource(R.string.title_server)
@@ -94,27 +89,12 @@ fun ServerScreen(
                         contentDescription = stringResource(R.string.toggle_output_mute)
                     )
                 }
-                // Speaker/earpiece selector.
-                Box {
-                    IconButton(onClick = { showOutputMenu = true }) {
-                        Icon(
-                            if (speakerOn) Icons.Default.Speaker else Icons.Default.Headset,
-                            contentDescription = stringResource(R.string.output_device)
-                        )
-                    }
-                    DropdownMenu(expanded = showOutputMenu, onDismissRequest = { showOutputMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.output_speaker)) },
-                            leadingIcon = { if (speakerOn) Icon(Icons.Default.Check, contentDescription = null) },
-                            onClick = { vm.setSpeaker(true); showOutputMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.output_earpiece)) },
-                            leadingIcon = { if (!speakerOn) Icon(Icons.Default.Check, contentDescription = null) },
-                            onClick = { vm.setSpeaker(false); showOutputMenu = false }
-                        )
-                    }
-                }
+                // Speaker mode is temporarily disabled (acoustic echo — AEC
+                // under repair); output is forced to the earpiece.
+                Icon(
+                    Icons.Default.Headset,
+                    contentDescription = stringResource(R.string.output_earpiece)
+                )
                 IconButton(onClick = vm::toggleMic) {
                     Icon(
                         if (micMuted) Icons.Default.MicOff else Icons.Default.Mic,

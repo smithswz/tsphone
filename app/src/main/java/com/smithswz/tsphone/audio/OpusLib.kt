@@ -2,7 +2,6 @@ package com.smithswz.tsphone.audio
 
 import com.sun.jna.Library
 import com.sun.jna.Native
-import com.sun.jna.Pointer
 import com.sun.jna.ptr.PointerByReference
 import java.nio.IntBuffer
 

@@ -67,6 +67,19 @@ class OpusCodec {
         return pcm.copyOf(decoded)
     }
 
+    /**
+     * Advances the decoder's internal state with a DTX silence frame
+     * (0-length packet). Best effort — the decoder simply ignores the call
+     * if the packet is rejected. Keeps the state in sync so the next real
+     * frame decodes cleanly after a concealed gap.
+     */
+    fun advanceDecoderState(clientId: Int) {
+        runCatching {
+            val pcm = ShortArray(FRAME_SIZE)
+            lib.opus_decode(decoder(clientId), ByteArray(0), 0, pcm, FRAME_SIZE, 0)
+        }
+    }
+
     fun destroyDecoder(clientId: Int) {
         decoders.remove(clientId)?.let { lib.opus_decoder_destroy(it) }
     }

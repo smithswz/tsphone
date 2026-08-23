@@ -30,8 +30,11 @@ class SettingsRepository(private val context: Context) {
     val vadSensitivity: Flow<Int> =
         context.dataStore.data.map { it[Keys.VAD_SENSITIVITY] ?: 50 }
 
+    // Earpiece only for now: speaker mode leaks acoustic echo into the mic
+    // (AEC still under repair). Keep the stored value so the setting can be
+    // re-enabled once the echo canceller works.
     val speakerOn: Flow<Boolean> =
-        context.dataStore.data.map { it[Keys.SPEAKER_ON] ?: true }
+        context.dataStore.data.map { false }
 
     val inputGain: Flow<Float> =
         context.dataStore.data.map { it[Keys.INPUT_GAIN] ?: 1.0f }
@@ -48,7 +51,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setVadSensitivity(value: Int) = context.dataStore.edit { it[Keys.VAD_SENSITIVITY] = value }
 
-    suspend fun setSpeakerOn(value: Boolean) = context.dataStore.edit { it[Keys.SPEAKER_ON] = value }
+    suspend fun setSpeakerOn(value: Boolean) = context.dataStore.edit { it[Keys.SPEAKER_ON] = value && false }
 
     suspend fun setInputGain(value: Float) = context.dataStore.edit { it[Keys.INPUT_GAIN] = value }
 

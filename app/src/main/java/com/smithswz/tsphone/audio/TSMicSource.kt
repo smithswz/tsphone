@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import com.github.manevolent.ts3j.audio.Microphone
 import com.github.manevolent.ts3j.enums.CodecType
@@ -24,7 +25,9 @@ class TSMicSource(
     context: Context,
     private val settings: SettingsRepository,
     private val scope: CoroutineScope,
-    private val codec: OpusCodec
+    private val codec: OpusCodec,
+    private val echoCanceller: EchoCanceller,
+    private val playbackReference: PlaybackReference
 ) : Microphone {
 
     @Volatile
@@ -44,6 +47,11 @@ class TSMicSource(
 
     private var recorder: AudioRecord? = null
     private var recordThread: Thread? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+
+    /** The record session the mixer uses as the AEC playback reference. */
+    val audioSessionId: Int
+        get() = recorder?.audioSessionId ?: 0
 
     init {
         scope.launch { settings.masterMuted.collect { muted = it } }
@@ -58,10 +66,14 @@ class TSMicSource(
     }
 
     fun start() {
+        echoCanceller.start()
         val minBuffer = AudioRecord.getMinBufferSize(
             OpusCodec.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
         val bufferSize = maxOf(minBuffer, OpusCodec.FRAME_SIZE * 2 * 4)
+        // Plain MIC source: on the test Samsung, VOICE_COMMUNICATION silently
+        // yields no signal. AEC/noise suppression still attach as session
+        // effects (the device's AEC hardware is API-controllable).
         val record = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             OpusCodec.SAMPLE_RATE,
@@ -74,6 +86,9 @@ class TSMicSource(
             return
         }
         recorder = record
+        // Android 10+ requires AEC on the VOICE_COMMUNICATION capture path;
+        // enable it (and noise suppression) explicitly on this session.
+        attachPreProcessors(record)
         record.startRecording()
 
         recordThread = Thread({
@@ -83,22 +98,32 @@ class TSMicSource(
             while (!Thread.currentThread().isInterrupted) {
                 val read = record.read(frame, 0, frame.size)
                 if (read != frame.size) continue
-                speaking = vad.process(frame) && !muted
+                // Echo cancellation against the played stream, drained in
+                // FIFO order — one entry per capture frame. No clocks needed:
+                // Speex's 200 ms filter absorbs the constant pipeline lag.
+                val match = playbackReference.nextReference()
+                val clean = echoCanceller.process(frame, match)
+                speaking = vad.process(clean) && !muted
                 if (speaking) {
-                    applyGain(frame)
-                    currentFrame.set(codec.encode(application(), frame))
+                    applyGain(clean)
+                    currentFrame.set(codec.encode(application(), clean))
                     framesEncoded++
                 } else {
                     currentFrame.set(null)
                 }
                 val now = System.currentTimeMillis()
                 if (now - lastLog > 5000) {
-                    Log.i("TSPhone", "mic: speaking=$speaking framesEncoded=$framesEncoded")
+                    Log.w(
+                        "TSPhone",
+                        "mic: speaking=$speaking frames=$framesEncoded refRms=${rmsOf(match.frame)} " +
+                            "refIdx=${match.frameIndex} nearRms=${rmsOf(frame)}"
+                    )
                     lastLog = now
                 }
             }
         }, "ts-mic").apply { start() }
     }
+
 
     fun stop() {
         recordThread?.interrupt()
@@ -106,8 +131,30 @@ class TSMicSource(
         recorder?.runCatching { stop() }
         recorder?.release()
         recorder = null
+        noiseSuppressor?.release()
+        noiseSuppressor = null
+        echoCanceller.stop()
+        playbackReference.clear()
         speaking = false
         currentFrame.set(null)
+    }
+
+    private fun attachPreProcessors(record: AudioRecord) {
+        val sessionId = record.audioSessionId
+        // Note: the device AcousticEchoCanceler is deliberately NOT attached —
+        // the software Speex AEC needs a clean near-end, and a second (often
+        // nonlinear) canceller upstream breaks its adaptation.
+        runCatching {
+            if (NoiseSuppressor.isAvailable()) {
+                NoiseSuppressor.create(sessionId)?.let {
+                    it.enabled = true
+                    noiseSuppressor = it
+                    Log.i("TSPhone", "noise suppressor enabled on session $sessionId")
+                } ?: Log.w("TSPhone", "noise suppressor create returned null (session $sessionId)")
+            } else {
+                Log.w("TSPhone", "NoiseSuppressor not available on this device")
+            }
+        }.onFailure { Log.w("TSPhone", "noise suppressor attach failed: ${it.message}") }
     }
 
     override fun isMuted(): Boolean = muted
@@ -122,11 +169,21 @@ class TSMicSource(
     private fun application(): Int =
         if (codecQuality == CodecQuality.MUSIC) OpusLib.OPUS_APPLICATION_AUDIO else OpusLib.OPUS_APPLICATION_VOIP
 
+    private fun rmsOf(frame: ShortArray?): Int {
+        if (frame == null) return 0
+        var sum = 0.0
+        for (i in frame.indices) sum += frame[i].toDouble() * frame[i]
+        return Math.sqrt(sum / frame.size).toInt()
+    }
+
     private fun applyGain(frame: ShortArray) {
         if (gain == 1.0f) return
         for (i in frame.indices) {
             val v = frame[i] * gain
             frame[i] = v.coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat()).toInt().toShort()
         }
+    }
+
+    companion object {
     }
 }
