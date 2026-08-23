@@ -1,4 +1,12 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+// Release signing — loaded from keystore.properties (gitignored). Missing
+// file means the release build falls back to unsigned.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
 
 plugins {
     id("com.android.application")
@@ -20,10 +28,29 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystoreProps.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        } else {
+            logger.warn("keystore.properties missing — release build will be unsigned")
+        }
+    }
+
     buildTypes {
         debug {
             // Debug and release share the applicationId so `adb shell run-as` and
             // force-stop commands work identically during development.
+        }
+        release {
+            // Minify off for the first release: JNA/ts3j rely on reflection
+            // and R8 rules would need auditing before enabling.
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -35,6 +62,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    lint {
+        // False positive: MainActivity extends ComponentActivity and launches
+        // fine, but lint's class-hierarchy check fails to resolve it.
+        disable += "Instantiatable"
     }
 
 }
